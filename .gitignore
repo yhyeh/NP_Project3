@@ -10,8 +10,7 @@ extra_files/
 http_server_example/
 test_case/
 http_server
-panel.cgi
-printenv.cgi
+*.cgi
 settings.json
 
 # Compiled Java class files
