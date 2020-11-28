@@ -6,6 +6,13 @@
 # Node artifact files
 node_modules/
 dist/
+extra_files/
+http_server_example/
+test_case/
+http_server
+panel.cgi
+printenv.cgi
+settings.json
 
 # Compiled Java class files
 *.class
