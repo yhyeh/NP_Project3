@@ -50,100 +50,73 @@ private:
                   std::getline(issLine, wordInLine, ' ');
                   if(iWord == 0){
                     /* GET */
-                    setenv("REQUEST_METHOD", wordInLine.c_str(), 1);
+                    REQUEST_METHOD = wordInLine;
                   }
                   else if (iWord == 1){
                     /* /panel.cgi */
                     /* /console.cgi?h0=nplinux1.cs.nctu.edu.tw&p0= ... */
                     std::string file = wordInLine.substr(1, wordInLine.find_first_of(".")-1);
-                    if (file == "panel"){
-                      isPanel = true;
-                      setenv("REQUEST_URI", wordInLine.c_str(), 1);
-                    }else if(file == "console"){
-                      isConsole = true;
-                      file = "/" + file + ".cgi";
-                      setenv("REQUEST_URI", file.c_str(), 1);
-                      std::string query = wordInLine.substr(wordInLine.find_first_of("?")+1);
-                      setenv("QUERY_STRING", query.c_str(), 1);
-                      //std::cout << getenv("QUERY_STRING") << std::endl;
+                    file = "/" + file + ".cgi";
+                    REQUEST_URI = file;
+                    if (wordInLine.find_first_of("?") == std::string::npos){
+                      QUERY_STRING = "";
+                    }else {
+                      QUERY_STRING = wordInLine.substr(wordInLine.find_first_of("?")+1);
                     }
                   }
                   else{
                     /* HTTP/1.1 */
-                    setenv("SERVER_PROTOCOL", wordInLine.c_str(), 1);
+                    SERVER_PROTOCOL = wordInLine;
                   }
                 }
               }
               else if (iLine == 1){
                 /* Host: localhost:18787 */
-                setenv("HTTP_HOST", lineInReq.substr(6).c_str(), 1);  // remove "Host: "
+                HTTP_HOST = lineInReq.substr(6);
               }             
             }
-            /* set REMOTE_ADDR, REMOTE_PORT */
-            setenv("REMOTE_ADDR", socket_.remote_endpoint().address().to_string().c_str(), 1);
-            setenv("REMOTE_PORT", std::to_string(socket_.remote_endpoint().port()).c_str(), 1);
-            setenv("DOCUMENT_ROOT", ".", 1);
-
-            /* panel.cgi or printenv.cgi*/
-            if (!isConsole){
-              int pid;
-              if ((pid = fork()) == -1){
-                std::cerr << "fork: " << strerror(errno) << std::endl;
+            /* set other env */
+            SERVER_ADDR = socket_.local_endpoint().address().to_string();
+            SERVER_PORT = std::to_string(socket_.local_endpoint().port());
+            REMOTE_ADDR = socket_.remote_endpoint().address().to_string();
+            REMOTE_PORT = std::to_string(socket_.remote_endpoint().port());
+            
+            /* fork */
+            int pid;
+            if ((pid = fork()) == -1){
+              std::cerr << "fork: " << strerror(errno) << std::endl;
+              exit(0);
+            }
+            if (pid == 0){ //child
+              /* set all env */
+              setenv("REQUEST_METHOD", REQUEST_METHOD.c_str(), 1);
+              setenv("REQUEST_URI", REQUEST_URI.c_str(), 1);
+              setenv("REQUEST_URI", REQUEST_URI.c_str(), 1);
+              setenv("QUERY_STRING", QUERY_STRING.c_str(), 1);
+              setenv("SERVER_PROTOCOL", SERVER_PROTOCOL.c_str(), 1);
+              setenv("HTTP_HOST", HTTP_HOST.c_str(), 1);
+              setenv("SERVER_ADDR", SERVER_ADDR.c_str(), 1);
+              setenv("SERVER_PORT", SERVER_PORT.c_str(), 1);
+              setenv("REMOTE_ADDR", REMOTE_ADDR.c_str(), 1);
+              setenv("REMOTE_PORT", REMOTE_PORT.c_str(), 1);
+              setenv("DOCUMENT_ROOT", ".", 1);
+              
+              /* dup, close fd, exec */
+              dup2(socket_.native_handle(), STDOUT_FILENO);
+              for (int fd = 3; fd <= __FD_SETSIZE; fd++){
+                close(fd);
+              }
+              std::cout << "HTTP/1.1 200 OK\r\n";
+              std::vector<std::string> emptyARGV;
+              std::string fpath = std::string(getenv("DOCUMENT_ROOT")).append(getenv("REQUEST_URI"));
+              if(execvp(fpath.c_str(), vecStrToChar(emptyARGV)) == -1){
+                std::cerr << "execvp: " << strerror(errno) << std::endl;
+                std::cout << "HTTP/1.1 404 Not Found\r\n\r\n";
                 exit(0);
               }
-              if (pid == 0){ //child
-                dup2(socket_.native_handle(), STDOUT_FILENO);
-                for (int fd = 3; fd <= __FD_SETSIZE; fd++){
-                  close(fd);
-                }
-                std::cout << "HTTP/1.1 200 OK\r\n";
-                std::vector<std::string> emptyARGV;
-                std::string fpath = std::string(getenv("DOCUMENT_ROOT")).append(getenv("REQUEST_URI"));
-                if(execvp(fpath.c_str(), vecStrToChar(emptyARGV)) == -1){
-                  std::cerr << "execvp: " << strerror(errno) << std::endl;
-                  exit(0);
-                }
-              }
-              else{ //parent
-                socket_.close();
-              }
-              
             }
-            /* console.cgi */
-            else if (isConsole){
-              std::vector<struct shConn> shConnVec;
-
-              std::istringstream issQry(getenv("QUERY_STRING"));
-              std::string itmInQry;
-              std::string itmNoHead;
-              for(int iConn = 0; iConn < 5; iConn++){
-                /* nplinux1.cs.nctu.edu.tw */
-                struct shConn tmp;
-                shConnVec.push_back(tmp);
-
-                std::getline(issQry, itmInQry, '&');
-                itmNoHead = itmInQry.substr(itmInQry.find_first_of("=")+1);
-                shConnVec[iConn].shHost = itmNoHead;
-                /* 1234 */
-                std::getline(issQry, itmInQry, '&');
-                itmNoHead = itmInQry.substr(itmInQry.find_first_of("=")+1);
-                shConnVec[iConn].shPort = atoi(itmNoHead.c_str());
-                /* t1.txt */
-                std::getline(issQry, itmInQry, '&');
-                itmNoHead = itmInQry.substr(itmInQry.find_first_of("=")+1);
-                shConnVec[iConn].cmdFile = itmNoHead;
-
-                display(shConnVec[iConn]);
-              }
-              
-              // do_write(length);
-            }
-            else{
-              // error 404
-              memset(wdata_, '\0', sizeof(wdata_));
-              strcpy(wdata_, "HTTP/1.1 404 Not Found\r\n\r\n");
-              do_write(strlen(wdata_));
-
+            else{ //parent
+              socket_.close();
             }
           }
         });
@@ -168,18 +141,18 @@ private:
   enum { max_length = 4096 };
   char rdata_[max_length];
   char wdata_[max_length];
-  bool isPanel = false;
-  bool isConsole = false;
-  struct shConn{
-    std::string shHost;
-    int shPort;
-    std::string cmdFile;
-  };
-  void display(struct shConn conn){
-    std::cout << "Host: \t" << conn.shHost << std::endl;
-    std::cout << "Port: \t" << conn.shPort << std::endl;
-    std::cout << "File: \t" << conn.cmdFile << std::endl;
-  }
+  // bool isPanel = false;
+  // bool isConsole = false;
+  std::string REQUEST_METHOD;
+  std::string REQUEST_URI;
+  std::string QUERY_STRING;
+  std::string SERVER_PROTOCOL;
+  std::string HTTP_HOST;
+  std::string SERVER_ADDR;
+  std::string SERVER_PORT;
+  std::string REMOTE_ADDR;
+  std::string REMOTE_PORT;
+
   char** vecStrToChar(std::vector<std::string> cmd)
   {
     char** result = (char**)malloc(sizeof(char*)*(cmd.size()+1));
