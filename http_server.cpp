@@ -37,49 +37,7 @@ private:
             std::string req(rdata_);
             std::cout << req << std::endl;
             /* parse request */
-            std::istringstream issReq(req);
-            std::string lineInReq;
-            for (int iLine = 0; iLine < 2; iLine++){
-              std::getline(issReq, lineInReq);
-              if (iLine == 0){
-                /* GET /panel.cgi HTTP/1.1 */
-                /* GET /console.cgi?h0=nplinux1.cs.nctu.edu.tw&p0= ... */
-                std::istringstream issLine(lineInReq);
-                std::string wordInLine;
-                for(int iWord = 0; iWord < 3; iWord++){
-                  std::getline(issLine, wordInLine, ' ');
-                  if(iWord == 0){
-                    /* GET */
-                    REQUEST_METHOD = wordInLine;
-                  }
-                  else if (iWord == 1){
-                    /* /panel.cgi */
-                    /* /console.cgi?h0=nplinux1.cs.nctu.edu.tw&p0= ... */
-                    std::string file = wordInLine.substr(1, wordInLine.find_first_of(".")-1);
-                    file = "/" + file + ".cgi";
-                    REQUEST_URI = file;
-                    if (wordInLine.find_first_of("?") == std::string::npos){
-                      QUERY_STRING = "";
-                    }else {
-                      QUERY_STRING = wordInLine.substr(wordInLine.find_first_of("?")+1);
-                    }
-                  }
-                  else{
-                    /* HTTP/1.1 */
-                    SERVER_PROTOCOL = wordInLine;
-                  }
-                }
-              }
-              else if (iLine == 1){
-                /* Host: localhost:18787 */
-                HTTP_HOST = lineInReq.substr(6);
-              }             
-            }
-            /* set other env */
-            SERVER_ADDR = socket_.local_endpoint().address().to_string();
-            SERVER_PORT = std::to_string(socket_.local_endpoint().port());
-            REMOTE_ADDR = socket_.remote_endpoint().address().to_string();
-            REMOTE_PORT = std::to_string(socket_.remote_endpoint().port());
+            parseReq(req);
             
             /* fork */
             int pid;
@@ -90,7 +48,6 @@ private:
             if (pid == 0){ //child
               /* set all env */
               setenv("REQUEST_METHOD", REQUEST_METHOD.c_str(), 1);
-              setenv("REQUEST_URI", REQUEST_URI.c_str(), 1);
               setenv("REQUEST_URI", REQUEST_URI.c_str(), 1);
               setenv("QUERY_STRING", QUERY_STRING.c_str(), 1);
               setenv("SERVER_PROTOCOL", SERVER_PROTOCOL.c_str(), 1);
@@ -153,6 +110,52 @@ private:
   std::string REMOTE_ADDR;
   std::string REMOTE_PORT;
 
+  /* util function */
+  void parseReq(std::string req){
+    std::istringstream issReq(req);
+    std::string lineInReq;
+    for (int iLine = 0; iLine < 2; iLine++){
+      std::getline(issReq, lineInReq);
+      if (iLine == 0){
+        /* GET /panel.cgi HTTP/1.1 */
+        /* GET /console.cgi?h0=nplinux1.cs.nctu.edu.tw&p0= ... */
+        std::istringstream issLine(lineInReq);
+        std::string wordInLine;
+        for(int iWord = 0; iWord < 3; iWord++){
+          std::getline(issLine, wordInLine, ' ');
+          if(iWord == 0){
+            /* GET */
+            REQUEST_METHOD = wordInLine;
+          }
+          else if (iWord == 1){
+            /* /panel.cgi */
+            /* /console.cgi?h0=nplinux1.cs.nctu.edu.tw&p0= ... */
+            std::string file = wordInLine.substr(1, wordInLine.find_first_of(".")-1);
+            file = "/" + file + ".cgi";
+            REQUEST_URI = file;
+            if (wordInLine.find_first_of("?") == std::string::npos){
+              QUERY_STRING = "";
+            }else {
+              QUERY_STRING = wordInLine.substr(wordInLine.find_first_of("?")+1);
+            }
+          }
+          else{
+            /* HTTP/1.1 */
+            SERVER_PROTOCOL = wordInLine;
+          }
+        }
+      }
+      else if (iLine == 1){
+        /* Host: localhost:18787 */
+        HTTP_HOST = lineInReq.substr(6);
+      }             
+    }
+    /* set other env */
+    SERVER_ADDR = socket_.local_endpoint().address().to_string();
+    SERVER_PORT = std::to_string(socket_.local_endpoint().port());
+    REMOTE_ADDR = socket_.remote_endpoint().address().to_string();
+    REMOTE_PORT = std::to_string(socket_.remote_endpoint().port());
+  }
   char** vecStrToChar(std::vector<std::string> cmd)
   {
     char** result = (char**)malloc(sizeof(char*)*(cmd.size()+1));
@@ -197,7 +200,7 @@ int main(int argc, char* argv[])
   {
     if (argc != 2)
     {
-      std::cerr << "Usage: async_tcp_echo_server <port>\n";
+      std::cerr << "Usage: http_server <port>\n";
       return 1;
     }
 

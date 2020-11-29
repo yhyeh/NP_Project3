@@ -11,7 +11,7 @@ http_server_example/
 test_case/
 http_server
 *.cgi
-settings.json
+.vscode/
 
 # Compiled Java class files
 *.class
