@@ -3,21 +3,9 @@
 #include <sstream>
 #include <vector>
 #include <fstream>
-/*
-#include <boost/asio/buffer.hpp>
-#include <boost/asio/io_context.hpp>
-#include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/read_until.hpp>
-#include <boost/asio/steady_timer.hpp>
-#include <boost/asio/write.hpp>
-*/
 #include <boost/asio.hpp>
-#include <functional>
 
-//using boost::asio::steady_timer;
 using boost::asio::ip::tcp;
-//using std::placeholders::_1;
-//using std::placeholders::_2;
 
 /* struct */
 struct shConn{
@@ -38,15 +26,11 @@ class ShellSession
   : public std::enable_shared_from_this<ShellSession> 
 { 
 private:
-  // ... some data members 
   tcp::socket socket_;
   tcp::resolver resolver_;
   tcp::resolver::results_type endpoints;
   int session;
   
-  //enum { max_length = 4096 };
-  //char rdata_[max_length];
-  //char wdata_[max_length];
   std::string input_buffer_;
 
   struct shConn shInfo;
@@ -64,7 +48,6 @@ private:
   {
     shInfo = shConn;
     session = sessionID;
-    //memset(rdata_, '\0', max_length);
     /*
     std::cout << "constructor session: " << session << std::endl;
     std::cout << "shInfo.shHost: " << shInfo.shHost << std::endl;
@@ -92,17 +75,6 @@ private:
   }
 private:  
   void do_resolve() {
-    /*
-    try{
-      endpoints = resolver_.resolve(shInfo.shHost, shInfo.shPort);
-    }
-    catch (std::exception& e){
-      std::cout << "resolve Error: " << e.what() << "\n";
-    }
-    tcp::resolver::results_type::iterator endpoint_iter = endpoints.begin();
-    
-    do_connect();
-    */
     if (stopped_) return;
     auto self(shared_from_this());
     resolver_.async_resolve(shInfo.shHost, shInfo.shPort,
