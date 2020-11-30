@@ -26,6 +26,253 @@ struct shConn{
 void getPanelHtml();
 
 /* class */
+
+
+class ShellSession
+  : public std::enable_shared_from_this<ShellSession> 
+{ 
+private:
+  tcp::socket shsocket_;
+  tcp::socket& websocket_;
+  tcp::resolver resolver_;
+  tcp::resolver::results_type endpoints;
+  int session;
+  
+  std::string input_buffer_;
+  enum { max_length = 4096 };
+  char rbuf_[max_length];
+
+  struct shConn shInfo;
+  std::vector<std::string> cmdVec;
+  std::string cmd;
+  std::string htmlContent;
+
+  bool stopped_ = false;
+  
+  std::string html_escape(std::string content);
+
+
+public:
+  ShellSession(boost::asio::io_context& io_context, tcp::socket& socket_)
+    : shsocket_(io_context),
+      resolver_(io_context),
+      websocket_(socket_)
+  {
+    memset(rbuf_, '\0', max_length);
+    stopped_ = false;
+  }
+  void start(struct shConn shConn, int sessionID) 
+  {
+    shInfo = shConn;
+    session = sessionID;
+
+    std::cout << "constructor session: " << session << std::endl;
+    std::cout << "shInfo.shHost: " << shInfo.shHost << std::endl;
+    std::cout << "shInfo.shPort: " << shInfo.shPort << std::endl;
+    
+    std::fstream fs("./test_case/" + shInfo.cmdFile);
+    std::string lineInCmd;
+    while(std::getline(fs, lineInCmd)){
+      lineInCmd.append("\n");
+      cmdVec.push_back(lineInCmd);
+    }
+    fs.close();
+    
+    for (size_t i = 0; i < cmdVec.size(); i++){
+      std::cout << i << "\t: " << cmdVec[i] << std::flush;
+    }
+    
+    do_resolve();
+  }
+  void stop() 
+  {
+    stopped_ = true;
+    std::cout << "destructor session: " << session << std::endl;
+    shsocket_.close();
+  }
+private:  
+  void do_resolve() {
+    if (stopped_) return;
+    auto self(shared_from_this());
+    resolver_.async_resolve(shInfo.shHost, shInfo.shPort,
+      [this, self](boost::system::error_code ec,
+      tcp::resolver::results_type returned_endpoints)
+      {
+        if (stopped_) return;
+        if (!ec)
+        {
+          endpoints = returned_endpoints;
+          tcp::resolver::results_type::iterator endpoint_iter = endpoints.begin();
+          while(endpoint_iter != endpoints.end())
+          {
+            std::cout << "Trying " << endpoint_iter->endpoint() << "\n";
+            endpoint_iter++;
+          }
+          do_connect();
+        }
+        else{
+          std::cout << "resolve Error: " << ec.message() << "\n";
+          //stop();
+        }
+      });
+  }
+  void do_connect() { // get socket after connect
+    if (stopped_) return;
+    auto self(shared_from_this());
+    boost::asio::async_connect(shsocket_, endpoints,
+    [this, self](boost::system::error_code ec, tcp::endpoint){
+      if (stopped_) return;
+      if (!ec)
+      {
+        //do_send_cmd(); // for test in echo server
+        do_read();
+      }
+      else{
+        std::cout << "connect Error: " << ec.message() << "\n";
+        //stop();
+      }
+    });
+  }
+  void do_read() 
+  {
+    if (stopped_) return;
+    std::cout << "this is do read" << std::endl;
+
+    auto self(shared_from_this());
+    boost::asio::async_read_until(shsocket_,
+        boost::asio::dynamic_buffer(input_buffer_), "% ",
+        [this, self](boost::system::error_code ec, std::size_t length)
+        {
+          if (stopped_) return;
+          if (!ec){
+            std::string reply(input_buffer_.substr(0, length - 2));
+            input_buffer_.erase(0, length);
+            reply.append("% ");
+            std::cout << reply << std::flush;
+            //output_shell(session, reply);
+            htmlContent.clear();
+            htmlContent.append("<script>document.getElementById('s");
+            htmlContent.append(std::to_string(session));
+            htmlContent.append("').innerHTML += '");
+            htmlContent.append(html_escape(reply));
+            htmlContent.append("';</script>");
+            
+            // get cmd from .txt
+            cmd = cmdVec.front();
+            cmdVec.erase(cmdVec.begin());
+            //output_command(session, cmd);
+            htmlContent.append("<script>document.getElementById('s");
+            htmlContent.append(std::to_string(session));
+            htmlContent.append("').innerHTML += '<b>");
+            htmlContent.append(html_escape(cmd));
+            htmlContent.append("</b>';</script>");
+
+            do_output_web();
+            
+          }else{
+            if (ec == boost::asio::error::eof){
+              std::cout << "get eof" << std::endl;
+            }else{
+              std::cout << "read golden reply Error: " << ec.message() << std::endl;
+              
+            }
+            //stop();
+          }
+        });
+    /*
+    shsocket_.async_read_some(
+        boost::asio::buffer(rbuf_, max_length-1), 
+        [this, self](boost::system::error_code ec, std::size_t length)
+        {
+          if (stopped_) return;
+          if (!ec){
+            rbuf_[length+1] = '\0';
+            std::cout << "(raw recv "<< length <<")" << rbuf_ << std::endl;
+            
+            std::string reply = std::string(rbuf_).substr(0, length);
+            memset(rbuf_, '\0', max_length);
+            //output_shell(session, reply);
+            std::cout << "(recv)" << reply << std::flush;
+            if (reply.find("% ") != std::string::npos){
+              //std::cout << "get %" << std::endl;
+              do_send_cmd();
+            }
+            //do_send_cmd(); // for test in echo server
+
+            do_read();
+          }
+          else{
+            std::cout << "read Error: " << ec.message() << std::endl;
+            if (ec == boost::asio::error::eof){
+              std::cout << "get eof" << std::endl;
+            }
+            stop();
+          }
+        });
+    */
+  }
+  
+  void do_output_web()
+  {
+    if (stopped_) return;
+    std::cout << "this is do_output_reply" << std::endl;
+    std::cout << htmlContent << std::endl;
+
+    auto self(shared_from_this());
+    boost::asio::async_write(websocket_, boost::asio::buffer(htmlContent.c_str(), htmlContent.size()),
+        [this, self](boost::system::error_code ec, std::size_t )
+        {
+          if (stopped_) return;
+          if (!ec)
+          {
+            std::cout << "send cmd to usr success" <<  std::endl;
+            do_send_cmd_sh();
+          }
+          else
+          {
+            std::cout << "output web Error: " << ec.message() << std::endl;
+            //stop();
+          }
+          
+        });
+  }
+    
+  void do_send_cmd_sh()
+  {
+    if (stopped_) return;
+    // send cmd to shell server
+    std::cout << cmd << std::flush;
+    std::cout << cmd.size() << std::endl;
+    
+    auto self(shared_from_this());
+    boost::asio::async_write(shsocket_, boost::asio::buffer(cmd.c_str(), cmd.size()),
+        [this, self](boost::system::error_code ec, std::size_t )
+        {
+          if (stopped_) return;
+          if (!ec)
+          {
+            std::cout << "send cmd to shell server success" <<  std::endl;
+            
+            if (cmd == "exit\n"){
+              //stop();
+            }
+            else{
+              do_read();
+            }
+            
+          }
+          else{
+            std::cout << "write cmd to golden Error: " << ec.message() << std::endl;
+            //stop();
+          }
+        });
+    std::cout << "end of do_send_cmd_sh" << std::endl;
+    
+  }  
+
+
+};
+
 class session
   : public std::enable_shared_from_this<session>
 {
@@ -42,12 +289,9 @@ public:
   }
 
 private:
-  //boost::thread panelThread;
-  //boost::thread consoleThread;
   tcp::socket socket_;
   enum { max_length = 4096 };
   char rdata_[max_length];
-  //char wdata_[max_length];
   std::vector<struct shConn> shConnVec;
   std::string tmpl;
   std::string REQUEST_METHOD;
@@ -137,9 +381,6 @@ private:
   }
   void panelCGI()
   {
-    //std::cout << "panelThread" << std::endl;
-    //std::cout << "panelHtml:" << panelHtml << std::endl;
-
     auto self(shared_from_this());
     boost::asio::async_write(socket_, boost::asio::buffer(panelHtml.c_str(), panelHtml.size()),
         [this, self](boost::system::error_code ec, std::size_t /*length*/)
@@ -152,260 +393,7 @@ private:
 
   }
 
-  class ShellSession
-    : public std::enable_shared_from_this<ShellSession> 
-  { 
-  private:
-    tcp::socket shsocket_;
-    tcp::socket& websocket_;
-    tcp::resolver resolver_;
-    tcp::resolver::results_type endpoints;
-    int session;
-    
-    std::string input_buffer_;
-    enum { max_length = 4096 };
-    char rbuf_[max_length];
 
-    struct shConn shInfo;
-    std::vector<std::string> cmdVec;
-    std::string cmd;
-    std::string htmlContent;
-
-    bool stopped_ = false;
-    
-    std::string html_escape(std::string content);
-
-
-  public:
-    ShellSession(boost::asio::io_context& io_context, tcp::socket& socket_)
-      : shsocket_(io_context),
-        resolver_(io_context),
-        websocket_(socket_)
-    {
-      memset(rbuf_, '\0', max_length);
-      stopped_ = false;
-    }
-    void start(struct shConn shConn, int sessionID) 
-    {
-      shInfo = shConn;
-      session = sessionID;
-
-      std::cout << "constructor session: " << session << std::endl;
-      std::cout << "shInfo.shHost: " << shInfo.shHost << std::endl;
-      std::cout << "shInfo.shPort: " << shInfo.shPort << std::endl;
-      
-      std::fstream fs("./test_case/" + shInfo.cmdFile);
-      std::string lineInCmd;
-      while(std::getline(fs, lineInCmd)){
-        lineInCmd.append("\n");
-        cmdVec.push_back(lineInCmd);
-      }
-      fs.close();
-      /*
-      for (size_t i = 0; i < cmdVec.size(); i++){
-        std::cout << i << "\t: " << cmdVec[i] << std::flush;
-      }
-      */
-      do_resolve();
-    }
-    void stop() 
-    {
-      stopped_ = true;
-      std::cout << "destructor session: " << session << std::endl;
-      shsocket_.close();
-    }
-  private:  
-    void do_resolve() {
-      if (stopped_) return;
-      auto self(shared_from_this());
-      resolver_.async_resolve(shInfo.shHost, shInfo.shPort,
-        [this, self](boost::system::error_code ec,
-        tcp::resolver::results_type returned_endpoints)
-        {
-          if (stopped_) return;
-          if (!ec)
-          {
-            endpoints = returned_endpoints;
-            tcp::resolver::results_type::iterator endpoint_iter = endpoints.begin();
-            while(endpoint_iter != endpoints.end())
-            {
-              //std::cout << "Trying " << endpoint_iter->endpoint() << "\n";
-              endpoint_iter++;
-            }
-            do_connect();
-          }
-          else{
-            std::cout << "resolve Error: " << ec.message() << "\n";
-            stop();
-          }
-        });
-    }
-    void do_connect() { // get socket after connect
-      if (stopped_) return;
-      auto self(shared_from_this());
-      boost::asio::async_connect(shsocket_, endpoints,
-      [this, self](boost::system::error_code ec, tcp::endpoint){
-        if (stopped_) return;
-        if (!ec)
-        {
-          do_send_cmd(); // for test in echo server
-          //do_read();
-        }
-        else{
-          std::cout << "connect Error: " << ec.message() << "\n";
-          stop();
-        }
-      });
-    }
-    void do_read() 
-    {
-      if (stopped_) return;
-      std::cout << "this is do read" << std::endl;
-
-
-      auto self(shared_from_this());
-      /*
-      boost::asio::async_read_until(shsocket_,
-          boost::asio::dynamic_buffer(input_buffer_), "% ",
-          [this, self](boost::system::error_code ec, std::size_t length)
-          {
-            if (stopped_) return;
-            if (!ec){
-              std::string reply(input_buffer_.substr(0, length - 2));
-              input_buffer_.erase(0, length);
-              reply.append("% ");
-              std::cout << reply << std::flush;
-              //output_shell(session, reply);
-              htmlContent.clear();
-              htmlContent.append("<script>document.getElementById('s");
-              htmlContent.append(std::to_string(session));
-              htmlContent.append("').innerHTML += '");
-              htmlContent.append(html_escape(reply));
-              htmlContent.append("';</script>");
-              boost::asio::async_write(websocket_, boost::asio::buffer(htmlContent.c_str(), htmlContent.size()),
-                  [this, self](boost::system::error_code ec, std::size_t )
-                  {
-                    if (stopped_) return;
-                    if (!ec)
-                    {
-                      do_send_cmd();
-                    }
-                    else
-                    {
-                      std::cout << "output shell Error: " << ec.message() << std::endl;
-                      stop();
-                    }
-                    
-                  });
-            }else{
-              if (ec == boost::asio::error::eof){
-                std::cout << "get eof" << std::endl;
-                stop();
-              }else{
-                std::cout << "read golden reply Error: " << ec.message() << std::endl;
-
-              }
-            }
-          });
-          */
-      shsocket_.async_read_some(
-          boost::asio::buffer(rbuf_, max_length-1), 
-          [this, self](boost::system::error_code ec, std::size_t length)
-          {
-            if (stopped_) return;
-            if (!ec){
-              rbuf_[length+1] = '\0';
-              std::cout << "(raw recv "<< length <<")" << rbuf_ << std::endl;
-              
-              std::string reply = std::string(rbuf_).substr(0, length);
-              memset(rbuf_, '\0', max_length);
-              //output_shell(session, reply);
-              std::cout << "(recv)" << reply << std::flush;
-              /*
-              if (reply.find("% ") != std::string::npos){
-                //std::cout << "get %" << std::endl;
-                do_send_cmd();
-              }
-              */
-              do_send_cmd(); // for test in echo server
-
-              do_read();
-            }
-            else{
-              std::cout << "read Error: " << ec.message() << std::endl;
-              if (ec == boost::asio::error::eof){
-                std::cout << "get eof" << std::endl;
-                stop();
-              }
-            }
-          });
-    }
-    void do_send_cmd() {
-      if (stopped_) return;
-      // get cmd from .txt
-      cmd = cmdVec.front();
-      cmdVec.erase(cmdVec.begin());
-      //output_command(session, cmd);
-      htmlContent.clear();
-      htmlContent.append("<script>document.getElementById('s");
-      htmlContent.append(std::to_string(session));
-      htmlContent.append("').innerHTML += '<b>");
-      htmlContent.append(html_escape(cmd));
-      htmlContent.append("</b>';</script>");
-      
-      // send cmd to shell server
-      std::cout << cmd << std::flush;
-      
-      auto self(shared_from_this());
-      boost::asio::async_write(shsocket_, boost::asio::buffer(cmd.c_str(), cmd.size()),
-          [this, self](boost::system::error_code ec, std::size_t )
-          {
-            if (stopped_) return;
-            if (!ec)
-            {
-              std::cout << "send cmd to shell server success" <<  std::endl;
-              // send cmd to usr
-              std::cout << htmlContent << std::endl;
-              
-              auto self(shared_from_this());
-              boost::asio::async_write(websocket_, boost::asio::buffer(htmlContent.c_str(), htmlContent.size()),
-                  [this, self](boost::system::error_code ec, std::size_t )
-                  {
-                    if (stopped_) return;
-                    if (!ec)
-                    {
-                      std::cout << "send cmd to usr success" <<  std::endl;
-                      if (cmd == "exit\n"){
-                        stop();
-                      }
-                      else{
-                        do_read();
-                      }
-                    }
-                    else{
-                      std::cout << "output cmd Error: " << ec.message() << std::endl;
-                      stop();
-                    }
-                  });
-              
-            }
-            else{
-              std::cout << "write cmd to golden Error: " << ec.message() << std::endl;
-              stop();
-            }
-          });
-      
-      
-
-
-    }
-    void send_cmd_to_server()
-    {
-      if (stopped_) return;
-      
-      
-    }
-  };
 
   /* util function */
   void parseReq(std::string req) /* store all env as string */
@@ -455,8 +443,6 @@ private:
     REMOTE_PORT = std::to_string(socket_.remote_endpoint().port());
   }
 };
-
-
 
 class server
 {
@@ -629,7 +615,7 @@ void session::output_command(int session, std::string content){
 }
 */
 
-std::string session::ShellSession::html_escape(std::string content){
+std::string ShellSession::html_escape(std::string content){
   std::string newContent;
   for(size_t i = 0; i < content.size(); i++){
     std::string curChar = content.substr(i, 1);
@@ -660,8 +646,8 @@ std::vector<struct shConn> session::parseQry(std::string QUERY_STRING){
     shConnVec[iConn].shHost = itmNoHead;
     /**************************************************/
     if (itmNoHead != ""){
-      //shConnVec[iConn].shHost = "nplinux9.cs.nctu.edu.tw";
-      shConnVec[iConn].shHost = "localhost";
+      shConnVec[iConn].shHost = "nplinux9.cs.nctu.edu.tw";
+      //shConnVec[iConn].shHost = "localhost";
     }
     /**************************************************/
     /* 1234 */
