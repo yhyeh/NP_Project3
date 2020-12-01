@@ -644,12 +644,12 @@ std::vector<struct shConn> session::parseQry(std::string QUERY_STRING){
     getline(issQry, itmInQry, '&');
     itmNoHead = itmInQry.substr(itmInQry.find_first_of("=")+1);
     shConnVec[iConn].shHost = itmNoHead;
-    /**************************************************/
+    /**************************************************//*
     if (itmNoHead != ""){
       shConnVec[iConn].shHost = "nplinux9.cs.nctu.edu.tw";
       //shConnVec[iConn].shHost = "localhost";
     }
-    /**************************************************/
+    *//**************************************************/
     /* 1234 */
     getline(issQry, itmInQry, '&');
     itmNoHead = itmInQry.substr(itmInQry.find_first_of("=")+1);
