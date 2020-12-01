@@ -3,6 +3,8 @@
 #include <string>
 #include <sstream>
 #include <vector>
+#include <sys/wait.h>
+
 
 using boost::asio::ip::tcp;
 
@@ -108,6 +110,7 @@ private:
 
   /* util function */
   void parseReq(std::string req){
+    /* store all env as string */
     std::istringstream issReq(req);
     std::string lineInReq;
     for (int iLine = 0; iLine < 2; iLine++){
@@ -190,6 +193,13 @@ private:
   tcp::acceptor acceptor_;
 };
 
+void childHandler(int sig){
+  while(waitpid(-1, NULL, WNOHANG) > 0){
+
+  }
+}
+
+
 int main(int argc, char* argv[])
 {
   try
@@ -199,6 +209,8 @@ int main(int argc, char* argv[])
       std::cerr << "Usage: http_server <port>\n";
       return 1;
     }
+
+    signal (SIGCHLD, childHandler);
 
     boost::asio::io_context io_context;
 

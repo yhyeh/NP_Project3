@@ -158,7 +158,7 @@ private:
             //std::cout << "(recv)" << reply << std::flush;
             
             if (reply.find("% ") != std::string::npos){
-              std::cout << "get %" << std::endl;
+              //std::cout << "get %" << std::endl;
               do_send_cmd();
             }
             
