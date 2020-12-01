@@ -8,7 +8,6 @@
 #include <fstream>
 
 #include <boost/asio.hpp>
-//#include <boost/thread.hpp>
 
 using boost::asio::ip::tcp;
 
@@ -26,8 +25,6 @@ struct shConn{
 void getPanelHtml();
 
 /* class */
-
-
 class ShellSession
   : public std::enable_shared_from_this<ShellSession> 
 { 
@@ -65,6 +62,7 @@ private:
   {
     shInfo = shConn;
     session = sessionID;
+    memset(rbuf_, '\0', max_length);
 
     std::cout << "constructor session: " << session << std::endl;
     std::cout << "shInfo.shHost: " << shInfo.shHost << std::endl;
@@ -112,7 +110,7 @@ private:
         }
         else{
           std::cout << "resolve Error: " << ec.message() << "\n";
-          //stop();
+          stop();
         }
       });
   }
@@ -124,12 +122,11 @@ private:
       if (stopped_) return;
       if (!ec)
       {
-        //do_send_cmd(); // for test in echo server
         do_read();
       }
       else{
         std::cout << "connect Error: " << ec.message() << "\n";
-        //stop();
+        stop();
       }
     });
   }
@@ -137,8 +134,9 @@ private:
   {
     if (stopped_) return;
     std::cout << "this is do read" << std::endl;
-
+    
     auto self(shared_from_this());
+    /*
     boost::asio::async_read_until(shsocket_,
         boost::asio::dynamic_buffer(input_buffer_), "% ",
         [this, self](boost::system::error_code ec, std::size_t length)
@@ -179,7 +177,7 @@ private:
             //stop();
           }
         });
-    /*
+        */
     shsocket_.async_read_some(
         boost::asio::buffer(rbuf_, max_length-1), 
         [this, self](boost::system::error_code ec, std::size_t length)
@@ -187,39 +185,57 @@ private:
           if (stopped_) return;
           if (!ec){
             rbuf_[length+1] = '\0';
-            std::cout << "(raw recv "<< length <<")" << rbuf_ << std::endl;
+            //std::cout << "(raw recv "<< length <<")" << rbuf_ << std::endl;
             
-            std::string reply = std::string(rbuf_).substr(0, length);
+            std::string reply = std::string(rbuf_);
             memset(rbuf_, '\0', max_length);
             //output_shell(session, reply);
             std::cout << "(recv)" << reply << std::flush;
-            if (reply.find("% ") != std::string::npos){
-              //std::cout << "get %" << std::endl;
-              do_send_cmd();
-            }
-            //do_send_cmd(); // for test in echo server
+            //std::cout << "get %" << std::endl;
+            htmlContent.clear();
+            htmlContent.append("<script>document.getElementById('s");
+            htmlContent.append(std::to_string(session));
+            htmlContent.append("').innerHTML += '");
+            htmlContent.append(html_escape(reply));
+            htmlContent.append("';</script>");
 
-            do_read();
+            if (reply.find("% ") != std::string::npos){
+              // get cmd from .txt
+              cmd = cmdVec.front();
+              cmdVec.erase(cmdVec.begin());
+              //output_command(session, cmd);
+              htmlContent.append("<script>document.getElementById('s");
+              htmlContent.append(std::to_string(session));
+              htmlContent.append("').innerHTML += '<b>");
+              htmlContent.append(html_escape(cmd));
+              htmlContent.append("</b>';</script>");
+              do_output_web_cmd();
+            }
+            else{
+              do_output_web_reply();
+            }
+            
           }
           else{
-            std::cout << "read Error: " << ec.message() << std::endl;
             if (ec == boost::asio::error::eof){
-              std::cout << "get eof" << std::endl;
+              //std::cout << "get eof" << std::endl;
+            }
+            else{
+              std::cout << "read Error: " << ec.message() << std::endl;
             }
             stop();
           }
         });
-    */
   }
   
-  void do_output_web()
+  void do_output_web_cmd()
   {
     if (stopped_) return;
-    std::cout << "this is do_output_reply" << std::endl;
-    std::cout << htmlContent << std::endl;
+    std::cout << "this is do_output_web_cmd" << std::endl;
+    //std::cout << htmlContent << std::endl;
 
     auto self(shared_from_this());
-    boost::asio::async_write(websocket_, boost::asio::buffer(htmlContent.c_str(), htmlContent.size()),
+    boost::asio::async_write(websocket_, boost::asio::buffer(htmlContent, htmlContent.size()),
         [this, self](boost::system::error_code ec, std::size_t )
         {
           if (stopped_) return;
@@ -231,7 +247,31 @@ private:
           else
           {
             std::cout << "output web Error: " << ec.message() << std::endl;
-            //stop();
+            stop();
+          }
+          
+        });
+  }
+  void do_output_web_reply()
+  {
+    if (stopped_) return;
+    std::cout << "this is do_output_web_reply" << std::endl;
+    //std::cout << htmlContent << std::endl;
+
+    auto self(shared_from_this());
+    boost::asio::async_write(websocket_, boost::asio::buffer(htmlContent, htmlContent.size()),
+        [this, self](boost::system::error_code ec, std::size_t )
+        {
+          if (stopped_) return;
+          if (!ec)
+          {
+            std::cout << "send reply to usr success" <<  std::endl;
+            do_read();
+          }
+          else
+          {
+            std::cout << "output web Error: " << ec.message() << std::endl;
+            stop();
           }
           
         });
@@ -241,11 +281,13 @@ private:
   {
     if (stopped_) return;
     // send cmd to shell server
+    std::cout << "this is do_send_cmd_sh" << std::endl;
     std::cout << cmd << std::flush;
-    std::cout << cmd.size() << std::endl;
+    //std::cout << cmd.size() << std::endl;
     
     auto self(shared_from_this());
-    boost::asio::async_write(shsocket_, boost::asio::buffer(cmd.c_str(), cmd.size()),
+    boost::asio::async_write(shsocket_, boost::asio::buffer(cmd, cmd.size()),
+    //boost::asio::async_write(shsocket_, cmd,
         [this, self](boost::system::error_code ec, std::size_t )
         {
           if (stopped_) return;
@@ -254,7 +296,7 @@ private:
             std::cout << "send cmd to shell server success" <<  std::endl;
             
             if (cmd == "exit\n"){
-              //stop();
+              stop();
             }
             else{
               do_read();
@@ -263,7 +305,7 @@ private:
           }
           else{
             std::cout << "write cmd to golden Error: " << ec.message() << std::endl;
-            //stop();
+            stop();
           }
         });
     std::cout << "end of do_send_cmd_sh" << std::endl;
@@ -285,6 +327,7 @@ public:
 
   void start()
   {
+    memset(rdata_, '\0', max_length);
     do_read();
   }
 
@@ -332,16 +375,18 @@ private:
             }
             else
             {
+              
               std::string wstr = "HTTP/1.1 404 Not Found\r\n\r\n";
               auto self(shared_from_this());
               boost::asio::async_write(socket_, boost::asio::buffer(wstr, wstr.size()),
-                  [this, self](boost::system::error_code ec, std::size_t /*length*/)
+                  [this, self](boost::system::error_code ec, std::size_t)
                   {
                     if (!ec)
                     {
                       this->socket_.close();
                     }
                   });
+              
             }
           }
         });
@@ -382,7 +427,7 @@ private:
   void panelCGI()
   {
     auto self(shared_from_this());
-    boost::asio::async_write(socket_, boost::asio::buffer(panelHtml.c_str(), panelHtml.size()),
+    boost::asio::async_write(socket_, boost::asio::buffer(panelHtml, panelHtml.size()),
         [this, self](boost::system::error_code ec, std::size_t /*length*/)
         {
           if (!ec)
@@ -646,8 +691,8 @@ std::vector<struct shConn> session::parseQry(std::string QUERY_STRING){
     shConnVec[iConn].shHost = itmNoHead;
     /**************************************************//*
     if (itmNoHead != ""){
-      shConnVec[iConn].shHost = "nplinux9.cs.nctu.edu.tw";
-      //shConnVec[iConn].shHost = "localhost";
+      //shConnVec[iConn].shHost = "nplinux9.cs.nctu.edu.tw";
+      shConnVec[iConn].shHost = "localhost";
     }
     *//**************************************************/
     /* 1234 */
