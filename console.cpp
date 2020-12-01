@@ -31,6 +31,8 @@ private:
   tcp::resolver::results_type endpoints;
   int session;
   
+  enum { max_length = 4096 };
+  char rdata_[max_length];
   std::string input_buffer_;
 
   struct shConn shInfo;
@@ -42,12 +44,13 @@ private:
     : socket_(io_context),
       resolver_(io_context)
   {
-    
+    memset(rdata_, '\0', max_length);
   }
   void start(struct shConn shConn, int sessionID) 
   {
     shInfo = shConn;
     session = sessionID;
+    memset(rdata_, '\0', max_length);
     /*
     std::cout << "constructor session: " << session << std::endl;
     std::cout << "shInfo.shHost: " << shInfo.shHost << std::endl;
@@ -120,6 +123,7 @@ private:
   {
     if (stopped_) return;
     auto self(shared_from_this());
+    /*
     boost::asio::async_read_until(socket_,
         boost::asio::dynamic_buffer(input_buffer_), "% ",
         [this, self](boost::system::error_code ec, std::size_t length)
@@ -142,7 +146,7 @@ private:
             }
           }
         });
-    /*
+    */
     socket_.async_read_some(
         boost::asio::buffer(rdata_, max_length-1), 
         [this, self](boost::system::error_code ec, std::size_t length)
@@ -150,30 +154,32 @@ private:
           if (stopped_) return;
           if (!ec){
             rdata_[length+1] = '\0';
-            std::cout << "(raw recv "<< length <<")" << rdata_ << std::endl;
+            //std::cout << "(raw recv "<< length <<")" << rdata_ << std::endl;
             
-            std::string reply = std::string(rdata_).substr(0, length);
+            std::string reply = std::string(rdata_);
             memset(rdata_, '\0', max_length);
-            //output_shell(session, reply);
+            output_shell(session, reply);
             //std::cout << "(recv)" << reply << std::flush;
             
             if (reply.find("% ") != std::string::npos){
               //std::cout << "get %" << std::endl;
               do_send_cmd();
+            }else{
+              // do_send_cmd(); // for test in echo server
+               do_read();
             }
             
-            // do_send_cmd(); // for test in echo server
-            do_read();
           }
           else{
-            std::cout << "read Error: " << ec.message() << std::endl;
             if (ec == boost::asio::error::eof){
-              std::cout << "get eof" << std::endl;
+              //std::cout << "get eof" << std::endl;
               stop();
+            }else{
+              std::cout << "read Error: " << ec.message() << std::endl;
             }
           }
         });
-        */
+        
   }
   void do_send_cmd() {
     if (stopped_) return;
@@ -210,7 +216,7 @@ private:
 
 int main(){
   /* test */
-  //setenv("QUERY_STRING", "h0=nplinux1.cs.nctu.edu.tw&p0=19999&f0=t1.txt&h1=&p1=&f1=&h2=&p2=&f2=&h3=&p3=&f3=&h4=&p4=&f4=", 1);
+  //setenv("QUERY_STRING", "h0=nplinux1.cs.nctu.edu.tw&p0=19999&f0=t5.txt&h1=&p1=&f1=&h2=&p2=&f2=&h3=&p3=&f3=&h4=&p4=&f4=", 1);
   
 
   std::vector<struct shConn> shConnVec = parseQry();
