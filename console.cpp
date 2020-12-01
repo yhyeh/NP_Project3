@@ -253,11 +253,11 @@ std::vector<struct shConn> parseQry(){
     getline(issQry, itmInQry, '&');
     itmNoHead = itmInQry.substr(itmInQry.find_first_of("=")+1);
     shConnVec[iConn].shHost = itmNoHead;
-    /**************************************************/
+    /**************************************************//*
     if (itmNoHead != ""){
       shConnVec[iConn].shHost = "127.0.0.1";
     }
-    /**************************************************/
+    *//**************************************************/
     /* 1234 */
     getline(issQry, itmInQry, '&');
     itmNoHead = itmInQry.substr(itmInQry.find_first_of("=")+1);
